@@ -1,94 +1,43 @@
-# Design
+# DeepClaw design system
 
-## Style Reference
+Register: product. The interface supports sustained research in a low-light workspace.
 
-**Cinematic-UI** (https://github.com/vineet-dwivedi/Cinematic-UI)
-电影感暗色 UI，核心语言：纯黑画布 + 青蓝霓光 + 流畅运动感。
+## User-preserved showcase
+The root route `/` is the original animated showcase and must remain the default homepage. Preserve its particle canvas, interactive logo, shimmer title, custom cursor and Cinzel brand type. These are intentional user preferences and override the restrained workbench rules below on this route. The task-focused interface lives at `/workbench`, reached from the showcase header. Do not replace the showcase when fixing functionality or polishing the workbench.
 
----
-
-## Color System
-
-```css
---bg-base:      #060d17   /* 深海蓝黑底 */
---bg-surface:   #0a1220   /* 面板层 */
---bg-elevated:  #0f1a2e   /* 卡片层 */
---border:       rgba(255,255,255,0.07)
---text-primary: #f1f5f9
---text-secondary: #94a3b8
---text-muted:   #475569
-
-/* Accent — 从 Cinematic-UI 的青蓝霓光提炼 */
---nb-cyan:   #00c8e8   /* 主 accent */
---nb-lime:   #ccff00   /* 工具调用标识 */
---nb-orange: #ff6600   /* 思考块 */
---nb-pink:   #ff006e   /* 用户消息 */
---cm-emerald: #34d399  /* 状态/成功 */
-```
-
-颜色策略：**Committed** — `--nb-cyan` 作主 accent，其余颜色按语义分配角色，非装饰性堆叠。
-
----
+## Color
+Restrained dark surfaces with a single emerald action accent. Tokens live in app/globals.css.
+- Base: oklch(0.16 0.008 165)
+- Surface: oklch(0.19 0.008 165)
+- Elevated: oklch(0.22 0.008 165)
+- Primary text: #e8e8e8
+- Secondary text: #999
+- Muted text: #929e9a
+- Primary action: --cm-emerald (#34d399)
+- Amber: pending or unavailable; rose: errors; indigo: secondary status.
+A linked session is not proof that the agent is running. Gateway reachability is not authenticated readiness.
 
 ## Typography
-
-```
---font-brand: 'JetBrains Mono'   /* logo / 品牌标识 */
---font-mono:  'JetBrains Mono'   /* 代码、标签、元数据 */
---font-ui:    'Inter'            /* 正文、按钮、表单 */
-```
-
-- 正文行长上限 68ch
-- 层级靠 scale + weight 对比（≥1.25 ratio），不靠颜色区分
-- 小标签全大写 + 宽字距（`letter-spacing: 0.1em+`）
-
----
-
-## Motion
-
-参照 Cinematic-UI 的 Framer Motion 用法：
-- 页面/消息出现：`translateY(8px)` + `opacity 0→1`，`ease-out-quart`，120–200ms
-- 展开/折叠：height layout animation，不 animate `max-height`
-- 工具调用旋转环：`linear infinite`（状态指示，非装饰）
-- 禁止：bounce、elastic、纯装饰性 hover 爆炸效果
-
----
-
-## Component Conventions
-
-### Cards / 消息气泡
-- `2px solid` 边框 + `3px 3px 0 <color>` 阴影（brutalist 硬阴影，非模糊）
-- 无圆角或极小圆角（工具精密感）
-- 背景用 `rgba` 透明叠加，保持深度
-
-### Buttons
-- Primary：`--nb-cyan` 边框 + 10% fill，hover 加亮
-- Ghost：无背景，hover 显轻微 fill
-- 禁用：降 opacity，不改颜色
-
-### 工具调用卡片
-- 深色背景（`#000a00`）+ `--nb-lime` 边框
-- 等宽字体，可折叠，状态用色块 LED 标记
-
-### 输入框
-- 底部单线或完整边框，focus 时 `--nb-cyan` 发光
-- 无圆角
-
----
+Use the existing Inter / Noto Sans SC / system stack for UI and Chinese text.
+Use JetBrains Mono for the compact brand mark and technical identifiers.
+Homepage heading: 32px, 28px on narrow screens. Body: 14–16px. Supporting information: 12px minimum in new components.
+Keep long project titles wrappable. Do not use uppercase English display typography for Chinese task labels.
 
 ## Layout
+Homepage: compact header with service status, research question and PDF input, recent project rows.
+Desktop: introductory text beside the input form. At 800px and below, stack them.
+Project list: sidebar on desktop, filters above the list on narrow screens.
+Project workspace: split desktop panes; separate conversation and files views on narrow screens.
+Dialogs scroll internally and have semantic labels, initial focus, focus wrapping and focus return.
+Use a single form container and separator-based project rows. Avoid nested decorative cards.
 
-- 三栏：session列表（固定）/ 对话区（flex-1）/ 文件树（固定）
-- 间距不均匀，用于建立节奏（Cinematic-UI 的顺序叙事逻辑）
-- 内容密度优于留白——面向专家用户
+## Interaction
+Use native cursors and visible focus indicators. Retain drafts on failed sends.
+Lock submissions until navigation or an explicit failure; do not silently dismiss a pending launch.
+HTML previews are static and sandboxed. Interactive scripts require a separately designed isolation mechanism.
+No decorative particle canvas, title shimmer, click explosions, vibration or forced navigation delays.
+Respect prefers-reduced-motion across all animation and transitions.
 
----
-
-## Anti-patterns（来自 PRODUCT.md）
-
-- 奶油白 SaaS 风
-- purple/blue 渐变文字（`background-clip: text` 禁用）
-- 侧边彩色竖线（`border-left > 1px` 作装饰禁用）
-- 无限嵌套卡片
-- Glassmorphism 作默认风格
-- Inter + 紫蓝渐变 + 无意义 hover 动效
+## Validation
+Verify at 390px and desktop widths. Build and type-check before restarting the local proxy.
+Do not start a research workflow to test navigation, dialog layout or project listing.

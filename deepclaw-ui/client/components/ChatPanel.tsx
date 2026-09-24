@@ -81,6 +81,7 @@ export default function ChatPanel({ sessionId, sessionKey, slug, initialMessage,
   const [histLoading, setHistLoading] = useState(false);
   const [initSending, setInitSending] = useState(false);
   const [creating, setCreating]       = useState(false);
+  const [sendError, setSendError] = useState('');
   const initialSentRef                = useRef(false);
   const bottomRef                     = useRef<HTMLDivElement>(null);
 
@@ -104,15 +105,15 @@ export default function ChatPanel({ sessionId, sessionKey, slug, initialMessage,
    
   useEffect(() => {
     if (!initialMessage || initialSentRef.current || status !== 'connected' || !sessionKey) return;
-    const ok = sendMessage(initialMessage);
-    if (!ok) return;
+    if (sessionStorage.getItem(`sent-${sessionId}`) === initialMessage) return;
     initialSentRef.current = true;
-    const userMsg: ChatMessage = {
-      id: `local-${Date.now()}`, role: 'user',
-      content: [{ type: 'text', text: initialMessage }], timestamp: Date.now(),
-    };
-    setMessages(prev => [...prev, userMsg]);
-  }, [status, sessionKey, initialMessage, sendMessage]);
+    void sendMessage(initialMessage).then(ok => {
+      if (!ok) { setSendError('初始消息未获网关确认，草稿已保存。连接恢复后刷新可重试。'); initialSentRef.current = false; return; }
+      sessionStorage.setItem(`sent-${sessionId}`, initialMessage);
+      sessionStorage.removeItem(`draft-${sessionId}`);
+      setMessages(prev => [...prev, { id: `local-${Date.now()}`, role: 'user', content: [{ type: 'text', text: initialMessage }], timestamp: Date.now() }]);
+    });
+  }, [status, sessionKey, sessionId, initialMessage, sendMessage]);
 
   // Load history when session changes
    
@@ -120,10 +121,12 @@ export default function ChatPanel({ sessionId, sessionKey, slug, initialMessage,
     if (!sessionId) { setMessages([]); return; }
     setMessages([]);
     setHistLoading(true);
+    let cancelled = false;
     fetchSessionHistory(sessionId)
-      .then(data => setMessages(data.messages.map(historyToChat)))
-      .catch(e => console.error('History load failed', e))
-      .finally(() => setHistLoading(false));
+      .then(data => { if (!cancelled) setMessages(prev => [...data.messages.map(historyToChat), ...prev.filter(m => m.id.startsWith('local-'))]); })
+      .catch(() => { if (!cancelled) setSendError('历史记录读取失败，刷新页面可重试。'); })
+      .finally(() => { if (!cancelled) setHistLoading(false); });
+    return () => { cancelled = true; };
   }, [sessionId]);
 
   // Auto-scroll to bottom
@@ -141,7 +144,7 @@ export default function ChatPanel({ sessionId, sessionKey, slug, initialMessage,
         .map(f => `  ${f.isDirectory ? '📁' : '📄'} ${f.name}`)
         .join('\n');
       const text = `请读取并了解 **${slug}** 项目工作区，汇报当前研究进展。\n\n工作区文件：\n${fileList || '（空目录）'}\n\n请逐一读取关键文件（project.md、plan.md、brief.md、README.md 等 .md 类型文件），然后告诉我：研究背景、当前阶段和最新状态。`;
-      const ok = sendMessage(text);
+      const ok = await sendMessage(text);
       if (!ok) return;
       setMessages(prev => [...prev, {
         id:        `local-${Date.now()}`,
@@ -170,7 +173,9 @@ export default function ChatPanel({ sessionId, sessionKey, slug, initialMessage,
     }
   }, [slug, onSessionCreated, creating]);
 
-  const handleSend = (text: string) => {
+  const handleSend = async (text: string) => {
+    if (!await sendMessage(text)) { setSendError('未获网关确认，请检查连接后重试。草稿已保留。'); return false; }
+    setSendError('');
     // Optimistically add user message
     const userMsg: ChatMessage = {
       id:        `local-${Date.now()}`,
@@ -179,11 +184,12 @@ export default function ChatPanel({ sessionId, sessionKey, slug, initialMessage,
       timestamp: Date.now(),
     };
     setMessages(prev => [...prev, userMsg]);
-    sendMessage(text);
+    return true;
   };
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--bg-base)' }}>
+      {sendError && <p role="alert" className="dc-error">{sendError}</p>}
       {/* Message area */}
       <div className="flex-1 overflow-y-auto dc-scroll px-5 py-4">
         {!sessionId ? (

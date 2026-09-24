@@ -1,4 +1,4 @@
-const BASE = process.env.NEXT_PUBLIC_SERVER_URL || 'http://127.0.0.1:19000';
+const BASE = '';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ export async function createSession(): Promise<{ sessionId: string; sessionKey: 
 
 export async function getSessionLinkedProject(sessionId: string): Promise<string | null> {
   const res = await fetch(`${BASE}/api/sessions/${encodeURIComponent(sessionId)}/linked-project`);
-  if (!res.ok) return null;
+  if (!res.ok) throw new Error('无法读取会话关联，请稍后重试');
   const data = await res.json();
   return data?.slug ?? null;
 }

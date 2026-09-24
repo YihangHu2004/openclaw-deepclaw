@@ -28,12 +28,14 @@ export default function ProjectsPage() {
   const [query, setQuery]               = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [loading, setLoading]           = useState(true);
+  const [error, setError] = useState('');
   const [dialogOpen, setDialogOpen]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try { setProjects(await fetchProjects()); }
-    catch (e) { console.error('fetch projects failed', e); }
+    catch { setError('无法加载项目，请检查服务后重试。'); }
     finally { setLoading(false); }
   }, []);
 
@@ -115,7 +117,7 @@ export default function ProjectsPage() {
               {filtered.length}/{projects.length}
             </span>
           )}
-          <button onClick={load} className="dc-btn-ghost" style={{ fontSize: 11 }}>
+          <button onClick={load} aria-label="刷新项目" className="dc-btn-ghost" style={{ fontSize: 11 }}>
             ↻
           </button>
           <button
@@ -123,13 +125,13 @@ export default function ProjectsPage() {
             className="dc-btn dc-btn-primary"
             style={{ fontSize: 11, padding: '5px 14px' }}
           >
-            + Launch
+            + 新研究
           </button>
         </div>
       </header>
 
       {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden dc-projects-body">
 
         {/* Sidebar */}
         <aside style={{
@@ -139,11 +141,11 @@ export default function ProjectsPage() {
           display: 'flex', flexDirection: 'column',
           padding: '16px 10px',
           overflowY: 'auto',
-        }} className="dc-scroll">
+        }} className="dc-scroll dc-project-sidebar">
 
           {/* Search */}
           <div style={{ marginBottom: 24 }}>
-            <SectionLabel>Search</SectionLabel>
+            <SectionLabel>搜索项目</SectionLabel>
             <div style={{ position: 'relative' }}>
               <svg style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
                    width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -153,7 +155,8 @@ export default function ProjectsPage() {
               <input
                 className="dc-input"
                 style={{ paddingLeft: 28, height: 32, fontSize: 11 }}
-                placeholder="Search…"
+                aria-label="搜索项目"
+                placeholder="搜索…"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
               />
@@ -162,15 +165,16 @@ export default function ProjectsPage() {
 
           {/* Status filter */}
           <div style={{ marginBottom: 24 }}>
-            <SectionLabel>Status</SectionLabel>
+            <SectionLabel>研究状态</SectionLabel>
             {([
-              ['all',      'All'],
-              ['inprogress', 'In Progress'],
-              ['done',     'Done'],
+              ['all',      '全部'],
+              ['inprogress', '进行中'],
+              ['done',     '已完成'],
             ] as [StatusFilter, string][]).map(([s, label]) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
+                aria-pressed={statusFilter === s}
                 className={`dc-sidebar-filter${statusFilter === s ? ' active' : ''}`}
               >
                 <span style={{ flex: 1 }}>{label}</span>
@@ -194,14 +198,14 @@ export default function ProjectsPage() {
               className="dc-sidebar-filter"
               style={{ color: 'var(--cm-emerald)', opacity: 0.8 }}
             >
-              + New Project
+              + 新研究
             </button>
           </div>
         </aside>
 
         {/* Project list */}
         <main className="flex-1 overflow-y-auto dc-scroll" style={{ padding: '12px 16px' }}>
-          {loading ? (
+          {error ? <div role="alert" className="dc-error">{error}<button className="dc-btn-ghost" onClick={load}>重试</button></div> : loading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="card-enter" style={{
@@ -237,7 +241,7 @@ export default function ProjectsPage() {
                 fontFamily: 'var(--font-mono)', letterSpacing: '0.08em',
                 textTransform: 'uppercase', textAlign: 'center',
               }}>
-                {query ? `No match: "${query}"` : 'No projects yet'}
+                {query || statusFilter !== 'all' ? '没有符合当前筛选的项目' : '还没有研究项目'}
               </div>
               {!query && (
                 <button onClick={() => setDialogOpen(true)} className="dc-btn dc-btn-primary" style={{ fontSize: 11 }}>

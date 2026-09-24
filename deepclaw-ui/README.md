@@ -1,5 +1,15 @@
 # DeepClaw UI
 
+## Local workbench update
+
+Run `powershell -ExecutionPolicy Bypass -File .\start-local.ps1` to start the current local setup at **http://127.0.0.1:1900**. The internal Next.js port is 1901. Both listeners bind to loopback. The server's generic fallback remains 19000, with its internal port always `DEEPCLAW_UI_PORT + 1` unless overridden.
+
+API and WebSocket connections use the page's origin; the old `NEXT_PUBLIC_SERVER_URL` setting is no longer needed. The homepage reports TCP reachability of the gateway, not authentication or model readiness. Run the existing gateway separately when you want to chat.
+
+HTML previews are static and sandboxed: embedded scripts and external network resources are disabled. Project association uses explicit session metadata, and failed message acknowledgements retain the draft for retry. No research is submitted by loading the homepage.
+
+Validation: `node --test server/security.test.js server/send.test.mjs` (Node 24), then `cd client` and `npm run build`.
+
 Local frontend for OpenClaw / DeepScientist AI agents. Provides real-time chat, project workspace, and file browser.
 
 ```

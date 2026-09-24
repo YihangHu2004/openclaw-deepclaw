@@ -1,53 +1,50 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import LobsterLogo from '@/components/LobsterLogo';
 import ChatPanel from '@/components/ChatPanel';
 import BladeCursor from '@/components/BladeCursor';
-import { fetchProjects, bindProjectSession } from '@/lib/api';
+import { getSessionLinkedProject } from '@/lib/api';
 
 export default function SessionPageClient() {
   const params       = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const router       = useRouter();
   const sessionId    = decodeURIComponent(params.id);
-  const initialQ     = searchParams.get('q') ?? '';
+  const [initialQ, setInitialQ] = useState('');
 
   const [sessionKey, setSessionKey] = useState<string | null>(null);
   const [linkedSlug, setLinkedSlug] = useState<string | null>(null);
-  const [navigating, setNavigating] = useState(false);
-  const knownSlugsRef = useRef<Set<string> | null>(null);
-  const pollRef       = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [linkError, setLinkError] = useState('');
 
    
   useEffect(() => {
     setSessionKey(sessionStorage.getItem(`sk-${sessionId}`));
-  }, [sessionId]);
+    setInitialQ(sessionStorage.getItem(`draft-${sessionId}`) || searchParams.get('q') || '');
+  }, [sessionId, searchParams]);
 
   useEffect(() => {
-    fetchProjects()
-      .then(ps => { knownSlugsRef.current = new Set(ps.map(p => p.slug)); })
-      .catch(() => { knownSlugsRef.current = new Set(); });
-  }, []);
-
-  const checkForNewProject = useCallback(async () => {
-    if (navigating || !knownSlugsRef.current || !sessionKey) return;
-    const projects = await fetchProjects().catch(() => []);
-    const created  = projects.find(p => !knownSlugsRef.current!.has(p.slug));
-    if (!created) return;
-
-    setNavigating(true);
-    if (pollRef.current) clearInterval(pollRef.current);
-    await bindProjectSession(created.slug, sessionKey).catch(console.error);
-    setLinkedSlug(created.slug);
-    setTimeout(() => router.push(`/project/${created.slug}`), 1000);
-  }, [navigating, sessionKey, router]);
-
-  useEffect(() => {
-    pollRef.current = setInterval(checkForNewProject, 3000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [checkForNewProject]);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const check = async () => {
+      try {
+        const slug = await getSessionLinkedProject(sessionId);
+        if (cancelled) return;
+        setLinkError('');
+        if (slug) {
+          setLinkedSlug(slug);
+          router.replace(`/project/${encodeURIComponent(slug)}`);
+          return;
+        }
+      } catch {
+        if (!cancelled) setLinkError('项目关联暂不可用，正在重试。对话仍保留。');
+      }
+      if (!cancelled) timer = setTimeout(check, 3000);
+    };
+    void check();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [sessionId, router]);
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--bg-base)' }}>
@@ -91,6 +88,7 @@ export default function SessionPageClient() {
       </header>
 
       {/* Chat */}
+      {linkError && <p role="status" className="dc-error">{linkError}</p>}
       <div className="flex-1 overflow-hidden">
         <ChatPanel
           sessionId={sessionId}

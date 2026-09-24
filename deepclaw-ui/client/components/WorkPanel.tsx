@@ -158,12 +158,16 @@ function TreeNode({ slug, name, fullPath, isDir, level, selected, onFile }: Node
   const [open, setOpen]         = useState(false);
   const [children, setChildren] = useState<FileItem[]>([]);
   const [loaded, setLoaded]     = useState(false);
+  const [error, setError] = useState('');
   const isSelected = !isDir && selected === fullPath;
 
   const toggle = async () => {
     if (!isDir) { onFile(fullPath); return; }
     if (!open && !loaded) {
-      const items = await fetchProjectFiles(slug, fullPath).catch(() => []);
+      setError('');
+      let items: FileItem[];
+      try { items = await fetchProjectFiles(slug, fullPath); }
+      catch { setError('读取失败，点击目录重试'); return; }
       setChildren(items.sort((a, b) => {
         if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
         return a.name.localeCompare(b.name);
@@ -175,7 +179,10 @@ function TreeNode({ slug, name, fullPath, isDir, level, selected, onFile }: Node
 
   return (
     <div>
+      {error && <p role="alert" className="dc-error">{error}</p>}
       <div
+        role="button" tabIndex={0} aria-expanded={isDir ? open : undefined}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void toggle(); } }}
         onClick={toggle}
         className="flex items-center gap-1.5 cursor-pointer select-none"
         style={{
@@ -271,7 +278,7 @@ function Preview({ slug, filePath }: { slug: string; filePath: string }) {
 
   if (ext === 'html') {
     return (
-      <iframe src={projectFileUrl(slug, filePath)} sandbox="allow-same-origin allow-scripts"
+      <iframe src={projectFileUrl(slug, filePath)} sandbox=""
               style={{ width: '100%', height: '100%', border: 'none' }} title={fileName}/>
     );
   }
@@ -317,17 +324,21 @@ interface Props {
 export default function WorkPanel({ slug, mode, htmlPreview, onFileOpen, onExpand, onCollapse, onClosePreview, onClearHtmlPreview }: Props) {
   const [roots, setRoots]           = useState<FileItem[]>([]);
   const [rootsLoading, setLoading]  = useState(true);
+  const [rootsError, setRootsError] = useState('');
   const [selectedFile, setFile]     = useState<string | null>(null);
   const [treeVisible, setTreeVis]   = useState(true);
 
   const loadRoots = useCallback(async () => {
     setLoading(true);
-    const items = await fetchProjectFiles(slug, '').catch(() => []);
+    setRootsError('');
+    try {
+    const items = await fetchProjectFiles(slug, '');
     setRoots(items.sort((a, b) => {
       if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
       return a.name.localeCompare(b.name);
     }));
-    setLoading(false);
+    } catch { setRootsError('无法读取文件，请重试。'); }
+    finally { setLoading(false); }
   }, [slug]);
 
    
@@ -356,6 +367,7 @@ export default function WorkPanel({ slug, mode, htmlPreview, onFileOpen, onExpan
     <div className="flex h-full border-l" style={{ borderColor: 'rgba(255,255,255,0.07)', borderLeftWidth: 1, background: 'var(--bg-base)' }}>
       {/* File tree sidebar */}
       <div
+        className="dc-work-tree" data-visible={showTree}
         style={{ width: treeW, flexShrink: 0, overflow: 'hidden',
                  transition: 'width 0.25s ease',
                  borderRight: '1px solid rgba(255,255,255,0.07)',
@@ -387,7 +399,7 @@ export default function WorkPanel({ slug, mode, htmlPreview, onFileOpen, onExpan
         <div className="flex-1 overflow-y-auto py-1 dc-scroll" style={{
           scrollbarWidth: 'thin',
         }}>
-          {rootsLoading ? (
+          {rootsError ? <div role="alert" className="dc-error">{rootsError}<button onClick={loadRoots} className="dc-btn-ghost">重试</button></div> : rootsLoading ? (
             <div style={{ padding: '12px 16px', fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Loading…</div>
           ) : roots.length === 0 ? (
             <div style={{ padding: '12px 16px', fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Empty</div>
@@ -449,10 +461,10 @@ export default function WorkPanel({ slug, mode, htmlPreview, onFileOpen, onExpan
             <div className="flex-1 overflow-hidden">
               {htmlPreview ? (
                 <iframe
-                  srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+                  srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:"><style>
                     body{margin:0;background:#fff;font-family:'Microsoft YaHei',Arial,sans-serif}
                   </style></head><body>${htmlPreview}</body></html>`}
-                  sandbox="allow-same-origin allow-scripts"
+                  sandbox=""
                   style={{ width: '100%', height: '100%', border: 'none' }}
                   title="AI Preview"
                 />

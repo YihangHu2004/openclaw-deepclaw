@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
+import { sendAcknowledged } from './send';
 
-const SERVER_BASE = process.env.NEXT_PUBLIC_SERVER_URL || 'http://127.0.0.1:19000';
-const WS_URL      = SERVER_BASE.replace(/^http/, 'ws') + '/ws/gateway';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +43,8 @@ export function useGateway({ sessionId, sessionKey, onMessage }: UseGatewayOptio
   const [agentActivity, setAgentActivity] = useState<string | null>(null);
 
   const wsRef            = useRef<WebSocket | null>(null);
+  const pendingSend = useRef(false);
+  const retryRequest = useRef<{ text: string; key: string; id: string } | null>(null);
   const reconnectRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef       = useRef(true);
   const sessionRef       = useRef(sessionId);
@@ -61,7 +62,8 @@ export function useGateway({ sessionId, sessionKey, onMessage }: UseGatewayOptio
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     setStatus('connecting');
-    const ws = new WebSocket(WS_URL);
+    const base = window.location.origin;
+    const ws = new WebSocket(base.replace(/^http/, 'ws') + '/ws/gateway');
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -185,7 +187,8 @@ export function useGateway({ sessionId, sessionKey, onMessage }: UseGatewayOptio
     };
   }, [connect]);
 
-  const sendMessage = useCallback((text: string) => {
+  const sendMessage = useCallback(async (text: string) => {
+    if (pendingSend.current) return false;
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return false;
     const key = sessionKeyRef.current || sessionRef.current;
     if (!key) return false;
@@ -193,14 +196,25 @@ export function useGateway({ sessionId, sessionKey, onMessage }: UseGatewayOptio
     setIsGenerating(true);
     setAgentActivity(null);
 
-    const reqId = `send-${Date.now()}`;
-    wsRef.current.send(JSON.stringify({
+    pendingSend.current = true;
+    let last = retryRequest.current;
+    try { last = JSON.parse(sessionStorage.getItem(`pending-send-${key}`) || 'null') || last; } catch {}
+    const reqId = last?.text === text && last.key === key ? last.id : `send-${crypto.randomUUID()}`;
+    retryRequest.current = { text, key, id: reqId };
+    try { sessionStorage.setItem(`pending-send-${key}`, JSON.stringify(retryRequest.current)); } catch {}
+    const accepted = await sendAcknowledged(wsRef.current, {
       type:   'req',
       id:     reqId,
       method: 'sessions.send',
       params: { key, message: text, idempotencyKey: reqId },
-    }));
-    return true;
+    });
+    pendingSend.current = false;
+    if (accepted) {
+      retryRequest.current = null;
+      try { sessionStorage.removeItem(`pending-send-${key}`); } catch {}
+    }
+    else if (mountedRef.current) { setIsGenerating(false); setAgentActivity(null); }
+    return accepted;
   }, []);
 
   const sendInterrupt = useCallback(() => {

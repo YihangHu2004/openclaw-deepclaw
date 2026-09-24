@@ -384,7 +384,10 @@ export default function LandingPage() {
           <LobsterLogo size={24} />
           <span className="dc-text-shimmer" style={{ fontFamily: 'var(--font-brand)', fontSize: 14, fontWeight: 800, letterSpacing: '0.22em', textTransform: 'uppercase' }}>DeepClaw</span>
         </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="dc-glare-btn is-secondary" onClick={() => router.push('/workbench')} style={{ padding: '8px 16px', fontSize: 12, borderRadius: 8 }}>科研工作台 →</button>
         <button className="dc-glare-btn is-secondary" onClick={() => { showToast('TRANSMITTING // NAVIGATING TO: /PROJECTS'); router.push('/projects'); }} style={{ padding: '8px 16px', fontSize: 12, borderRadius: 8 }}>项目库 //</button>
+        </div>
       </header>
 
       {/* Hero */}
@@ -457,6 +460,7 @@ export default function LandingPage() {
       <div id="dc-hud-toast" style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, background: 'rgba(3,7,18,0.95)', border: '1px solid #10b981', boxShadow: '0 0 15px rgba(16,185,129,0.2)', borderRadius: 6, padding: '10px 16px', color: '#34d399', fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.1em', opacity: 0, transform: 'translateY(10px)', transition: 'all 300ms cubic-bezier(0.16,1,0.3,1)', pointerEvents: 'none' }}>TRANSMITTING_DIRECTIVE…</div>
 
       <style dangerouslySetInnerHTML={{ __html: `
+        .cursor-custom-active { --font-brand: 'Cinzel', Georgia, serif; }
         .cursor-custom-active, .cursor-custom-active * { cursor: none !important; }
 
         .dc-text-shimmer {

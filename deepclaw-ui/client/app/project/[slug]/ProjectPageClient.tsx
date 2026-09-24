@@ -63,9 +63,11 @@ export default function ProjectPageClient() {
   const [project, setProject]         = useState<ProjectMeta | null>(null);
   const [sessions, setSessions]       = useState<SessionMeta[]>([]);
   const [loading, setLoading]         = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [showLink, setShowLink]       = useState(false);
   const [panelMode, setPanelMode]     = useState<PanelMode>('split');
   const [htmlPreview, setHtmlPreview] = useState<string | null>(null);
+  const [mobilePane, setMobilePane] = useState<'chat' | 'files'>('chat');
 
   const handleHtmlPreview = useCallback((html: string) => {
     setHtmlPreview(html);
@@ -73,6 +75,7 @@ export default function ProjectPageClient() {
   }, []);
 
   const load = useCallback(async () => {
+    setLoading(true); setLoadError('');
     try {
       const [proj, sess] = await Promise.all([
         fetchProjectMeta(slug),
@@ -80,7 +83,7 @@ export default function ProjectPageClient() {
       ]);
       setProject(proj);
       setSessions(sess);
-    } catch (e) { console.error(e); }
+    } catch { setLoadError('项目或会话暂时无法加载。'); }
     finally { setLoading(false); }
   }, [slug]);
 
@@ -109,6 +112,7 @@ export default function ProjectPageClient() {
   const sessionKey = project?.sessionKey ?? null;
   const chatW = panelMode === 'split' ? '50%' : panelMode === 'preview' ? '32%' : '22%';
 
+  if (loadError) return <div role="alert" className="dc-error">{loadError}<button className="dc-btn-ghost" onClick={load}>重试</button></div>;
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center" style={{ background: 'var(--bg-base)' }}>
@@ -193,8 +197,12 @@ export default function ProjectPageClient() {
       )}
 
       {/* Main layout */}
-      <div className="flex flex-1 overflow-hidden">
-        <div style={{ width: chatW, flexShrink: 0, overflow: 'hidden', transition: 'width 0.3s ease', borderRight: '2px solid var(--border)' }}>
+      <nav className="dc-mobile-tabs" aria-label="工作区视图">
+        <button className="dc-btn-ghost" aria-pressed={mobilePane === 'chat'} onClick={() => setMobilePane('chat')}>对话</button>
+        <button className="dc-btn-ghost" aria-pressed={mobilePane === 'files'} onClick={() => setMobilePane('files')}>文件与预览</button>
+      </nav>
+      <div className="flex flex-1 overflow-hidden dc-project-main" data-mobile={mobilePane}>
+        <div className="dc-chat-column" style={{ width: chatW, flexShrink: 0, overflow: 'hidden', borderRight: '1px solid var(--border)' }}>
           <ChatPanel
             sessionId={sessionId}
             sessionKey={sessionKey}
@@ -205,7 +213,7 @@ export default function ProjectPageClient() {
             onHtmlPreview={handleHtmlPreview}
           />
         </div>
-        <div className="flex-1 overflow-hidden" style={{ minWidth: 0 }}>
+        <div className="flex-1 overflow-hidden dc-work-column" style={{ minWidth: 0 }}>
           <WorkPanel
             slug={slug}
             mode={panelMode}

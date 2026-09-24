@@ -17,6 +17,7 @@ const express   = require('express');
 const WebSocket = require('ws');
 const cors      = require('cors');
 const multer    = require('multer');
+const { safePath, trustedOrigin } = require('./security');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -131,7 +132,7 @@ function resolveWorkspaceDir() {
 
 const WORKSPACE_DIR  = resolveWorkspaceDir();
 const WORKSPACE_ROOT = path.join(WORKSPACE_DIR, 'state', 'projects');
-const WORKSPACE_DENY_NAMES = new Set(['.git', '.openclaw', 'node_modules']);
+const WORKSPACE_DENY_NAMES = new Set(['.git', '.openclaw', 'node_modules', 'user_config.md', '.env', '.env.local']);
 
 function isPathInside(base, target) {
   const rel = path.relative(base, target);
@@ -141,7 +142,7 @@ function isPathInside(base, target) {
 function isBlockedWorkspacePath(target) {
   const rel = path.relative(WORKSPACE_DIR, target);
   if (!rel) return false;
-  return rel.split(path.sep).some(part => WORKSPACE_DENY_NAMES.has(part));
+  return rel.split(path.sep).some(part => WORKSPACE_DENY_NAMES.has(part.toLowerCase()) || part.toLowerCase().startsWith('.env.'));
 }
 
 // ─── Gateway session creation (for POST /api/sessions/create) ─────────────────
@@ -198,8 +199,32 @@ function createSessionViaGateway() {
 // ─── Express ──────────────────────────────────────────────────────────────────
 
 const app = express();
-app.use(cors());
+app.use((req, res, next) => {
+  if (!['127.0.0.1', 'localhost'].some(host => req.headers.host === `${host}:${PORT}`)) return res.status(403).send('Forbidden host');
+  if (req.headers.origin && !trustedOrigin(req.headers.origin, PORT)) return res.status(403).send('Forbidden origin');
+  if (req.headers['sec-fetch-site'] === 'cross-site') return res.status(403).send('Forbidden site');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+app.use(cors({ origin: (origin, done) => done(null, !!origin && trustedOrigin(origin, PORT)) }));
 app.use(express.json());
+app.param('slug', (req, res, next, slug) => {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug) || !safePath(WORKSPACE_ROOT, path.resolve(WORKSPACE_ROOT, slug))) return res.status(403).send('Invalid project path');
+  next();
+});
+app.get('/api/health', (_req, res) => {
+  const socket = net.createConnection(gw.port, '127.0.0.1');
+  let finished = false;
+  const finish = available => {
+    if (finished) return;
+    finished = true; socket.destroy();
+    res.json({ ui: true, gatewayAvailable: available });
+  };
+  socket.setTimeout(1200, () => finish(false));
+  socket.once('connect', () => finish(true));
+  socket.once('error', () => finish(false));
+});
 
 // ─── REST: sessions list ──────────────────────────────────────────────────────
 
@@ -311,7 +336,8 @@ app.get('/api/sessions/:sessionId/linked-project', async (req, res) => {
       if (!e.isDirectory() || e.name.startsWith('.')) continue;
       try {
         const raw = (await fs.promises.readFile(path.join(WORKSPACE_ROOT, e.name, '.session'), 'utf-8')).trim();
-        if (raw === sessionId || raw.includes(sessionId)) {
+        const meta = loadAllSessionsMeta();
+        if (raw === sessionId || meta[raw]?.sessionId === sessionId) {
           return res.json({ slug: e.name });
         }
       } catch {}
@@ -325,7 +351,7 @@ app.get('/api/sessions/:sessionId/linked-project', async (req, res) => {
 app.get('/api/workspace/files', async (req, res) => {
   try {
     const dirPath = path.resolve(WORKSPACE_DIR, req.query.path || '');
-    if (!isPathInside(WORKSPACE_DIR, dirPath) || isBlockedWorkspacePath(dirPath)) return res.status(403).send('Forbidden');
+    if (!safePath(WORKSPACE_DIR, dirPath) || isBlockedWorkspacePath(dirPath)) return res.status(403).send('Forbidden');
     const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
     res.json(items
       .filter(i => !isBlockedWorkspacePath(path.join(dirPath, i.name)))
@@ -339,7 +365,7 @@ app.get('/api/workspace/file', async (req, res) => {
   try {
     if (!req.query.path) return res.status(400).send('Missing path');
     const filePath = path.resolve(WORKSPACE_DIR, req.query.path);
-    if (!isPathInside(WORKSPACE_DIR, filePath) || isBlockedWorkspacePath(filePath)) return res.status(403).send('Forbidden');
+    if (!safePath(WORKSPACE_DIR, filePath) || isBlockedWorkspacePath(filePath)) return res.status(403).send('Forbidden');
 
     let stat;
     try { stat = await fs.promises.stat(filePath); }
@@ -347,6 +373,7 @@ app.get('/api/workspace/file', async (req, res) => {
     if (!stat.isFile()) return res.status(400).send('Not a file');
 
     const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.html') res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:");
     if (['.html', '.md', '.txt', '.json', '.jsonl', '.csv'].includes(ext)) {
       const data = await fs.promises.readFile(filePath, 'utf-8');
       res.type(ext === '.html' ? 'text/html' : 'text/plain').send(data);
@@ -434,7 +461,7 @@ app.get('/api/projects', async (req, res) => {
 app.get('/api/projects/:slug', async (req, res) => {
   try {
     const dir = path.resolve(WORKSPACE_ROOT, req.params.slug);
-    if (!dir.startsWith(WORKSPACE_ROOT)) return res.status(403).send('Forbidden');
+    if (!safePath(WORKSPACE_ROOT, dir)) return res.status(403).send('Forbidden');
     if (!fs.existsSync(dir)) return res.status(404).json({ error: 'Not found' });
     res.json(await readProjectMeta(req.params.slug));
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -455,7 +482,7 @@ app.post('/api/projects', async (req, res) => {
 app.delete('/api/projects/:slug', async (req, res) => {
   try {
     const dir = path.resolve(WORKSPACE_ROOT, req.params.slug);
-    if (!dir.startsWith(WORKSPACE_ROOT)) return res.status(403).send('Forbidden');
+    if (!safePath(WORKSPACE_ROOT, dir)) return res.status(403).send('Forbidden');
     if (!fs.existsSync(dir)) return res.status(404).json({ error: 'Not found' });
 
     const slug = req.params.slug;
@@ -505,7 +532,7 @@ app.delete('/api/projects/:slug', async (req, res) => {
 app.put('/api/projects/:slug/session', async (req, res) => {
   try {
     const dir = path.resolve(WORKSPACE_ROOT, req.params.slug);
-    if (!dir.startsWith(WORKSPACE_ROOT)) return res.status(403).send('Forbidden');
+    if (!safePath(WORKSPACE_ROOT, dir) || !safePath(dir, path.join(dir, '.session'))) return res.status(403).send('Forbidden');
     if (!fs.existsSync(dir)) return res.status(404).json({ error: 'Not found' });
     const { sessionKey } = req.body;
     if (!sessionKey) return res.status(400).json({ error: 'sessionKey required' });
@@ -567,9 +594,9 @@ app.post('/api/upload-pdfs', (req, res) => {
 app.get('/api/projects/:slug/files', async (req, res) => {
   try {
     const projRoot = path.resolve(WORKSPACE_ROOT, req.params.slug);
-    if (!projRoot.startsWith(WORKSPACE_ROOT)) return res.status(403).send('Forbidden');
+    if (!safePath(WORKSPACE_ROOT, projRoot)) return res.status(403).send('Forbidden');
     const dirPath = path.resolve(projRoot, req.query.path || '');
-    if (!dirPath.startsWith(projRoot)) return res.status(403).send('Forbidden');
+    if (!safePath(projRoot, dirPath)) return res.status(403).send('Forbidden');
     const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
     res.json(items.filter(i => !i.name.startsWith('.')).map(i => ({ name: i.name, isDirectory: i.isDirectory() })));
   } catch (err) { res.status(err.code === 'ENOENT' ? 404 : 500).send(err.message); }
@@ -578,14 +605,15 @@ app.get('/api/projects/:slug/files', async (req, res) => {
 app.get('/api/projects/:slug/file', async (req, res) => {
   try {
     const projRoot = path.resolve(WORKSPACE_ROOT, req.params.slug);
-    if (!projRoot.startsWith(WORKSPACE_ROOT)) return res.status(403).send('Forbidden');
+    if (!safePath(WORKSPACE_ROOT, projRoot)) return res.status(403).send('Forbidden');
     if (!req.query.path) return res.status(400).send('Missing path');
     const filePath = path.resolve(projRoot, req.query.path);
-    if (!filePath.startsWith(projRoot)) return res.status(403).send('Forbidden');
+    if (!safePath(projRoot, filePath)) return res.status(403).send('Forbidden');
     let stat;
     try { stat = await fs.promises.stat(filePath); } catch { return res.status(404).send('Not found'); }
     if (!stat.isFile()) return res.status(400).send('Not a file');
     const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.html') res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:");
     if (['.html', '.md', '.txt', '.json', '.csv'].includes(ext)) {
       res.type(ext === '.html' ? 'text/html' : 'text/plain')
          .send(await fs.promises.readFile(filePath, 'utf-8'));
@@ -643,6 +671,10 @@ const server = http.createServer(app);
 const wss    = new WebSocket.Server({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
+  if (!trustedOrigin(req.headers.origin, PORT)) {
+    socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+    return;
+  }
   if (req.url === '/ws/gateway') {
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
     return;
@@ -779,8 +811,8 @@ function spawnNextJs() {
   const hasBuild = fs.existsSync(path.join(CLIENT_DIR, '.next', 'BUILD_ID'));
   const mode     = hasBuild ? 'start' : 'dev';
   const args     = mode === 'dev'
-    ? ['next', 'dev', '-p', String(NEXT_PORT), '--turbopack']
-    : ['next', 'start', '-p', String(NEXT_PORT)];
+    ? ['next', 'dev', '-p', String(NEXT_PORT), '-H', '127.0.0.1', '--turbopack']
+    : ['next', 'start', '-p', String(NEXT_PORT), '-H', '127.0.0.1'];
 
   console.log(`[next] ${mode.toUpperCase()} on port ${NEXT_PORT}${hasBuild ? '' : ' (no build found — run npm run build for faster startup)'}`);
   // On Windows use cmd /c to run npx; on Unix run directly (no shell needed)

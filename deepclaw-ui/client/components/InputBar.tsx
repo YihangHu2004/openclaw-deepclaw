@@ -69,25 +69,31 @@ interface Props {
   disabled?:     boolean;
   isGenerating?: boolean;
   agentActivity?: string | null;
-  onSend:        (text: string) => void;
+  onSend:        (text: string) => Promise<boolean>;
   onInterrupt?:  () => void;
 }
 
 export default function InputBar({ status, disabled, isGenerating = false, agentActivity = null, onSend, onInterrupt }: Props) {
   const [text, setText]       = useState('');
   const [focused, setFocused] = useState(false);
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const canSend = status === 'connected' && text.trim().length > 0 && !disabled && !isGenerating;
+  const canSend = status === 'connected' && text.trim().length > 0 && !disabled && !isGenerating && !sending;
 
-  const handleSend = () => {
-    if (!canSend) return;
-    onSend(text.trim());
-    setText('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+  const handleSend = async () => {
+    if (!canSend || sendingRef.current) return;
+    sendingRef.current = true; setSending(true);
+    try {
+      if (!await onSend(text.trim())) return;
+      setText('');
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    } finally { sendingRef.current = false; setSending(false); }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
